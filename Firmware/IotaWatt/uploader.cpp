@@ -355,6 +355,8 @@ bool uploader::config(const char *jsonConfig)
         uploaders++;
     if(Emoncms)
         uploaders++;
+    if(postgrest)
+        uploaders++;
     if(uploaders){
         uploaderBufferLimit = MIN(uploaderBufferTotal / uploaders, 4000);
     }
