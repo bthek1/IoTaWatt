@@ -193,10 +193,10 @@ struct EEprom {
 #define T_influx2Config 30 // influx2 configuration 
 #define T_uploader 31      // Uploader base class
 #define T_influx1 32       // influxDB_v1_uploader
-#define T_postgrest 33     // PostgREST uploader
-#define T_integrator 34    // Integrator class  
-#define T_Script 35
-#define T_Scriptset 36                        
+#define T_integrator 33    // Integrator class  
+#define T_Script 34
+#define T_Scriptset 35                        
+#define T_postgrest 36     // PostgREST uploader
 
       // LED codes
 
