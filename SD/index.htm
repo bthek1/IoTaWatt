@@ -364,6 +364,14 @@
                             <span id="PVoutputmsg"></span>
 
                         </div>
+
+                        <div id="statusPostgrestDiv" class="statusDiv" style="display: none;">
+                            <button id="postgrestButton" style="configButton" value="postgrest" onclick="serverToggle(this)"></button>
+                            <span>PostgREST:</span>
+                            <span id="postgresttext"></span>
+                            <span id="postgrestmsg"></span>
+
+                        </div>
                     </div>
                 </div>
 
@@ -2095,7 +2103,7 @@
          * ******************************************************************************************/
 
         function buildWebServer() {
-            var servers = ["Emoncms", "InfluxDB_v1", "influxDB_v2", "PVoutput"];
+            var servers = ["Emoncms", "InfluxDB_v1", "influxDB_v2", "PostgREST", "PVoutput"];
             EbyId("serverHead").innerHTML = "Setup Server Uploaders";
             EbyId("divInfluxTagSet").style.display = "none";
             EbyId("divServerOutputs").style.display = "none";
@@ -2122,6 +2130,9 @@
                 if (servers[i].toLowerCase() == "influxdb_v2") {
                     option.text += (config.influxdb2 !== undefined) ? " (edit)" : " (add)";
                 }
+                if (servers[i].toLowerCase() == "postgrest") {
+                    option.text += (config.postgrest !== undefined) ? " (edit)" : " (add)";
+                }
                 if (servers[i].toLowerCase() == "pvoutput") {
                     option.text += (config.pvoutput !== undefined) ? " (edit)" : " (add)";
                 }
@@ -2141,6 +2152,9 @@
             } else if (obj.value.toLowerCase() == "influxdb_v2") {
                 serverConfig = config.influxdb2;
                 editInfluxdb(2);
+            } else if (obj.value.toLowerCase() == "postgrest") {
+                serverConfig = config.postgrest;
+                editPostgrest();
             } else if (obj.value.toLowerCase() == "pvoutput") {
                 serverConfig = undefined;
                 editPVoutput();
@@ -2156,6 +2170,8 @@
                 } else if (serverConfig.type == "influxdb2") {
                     serverConfig.version = undefined;
                     config.influxdb2 = serverConfig;
+                } else if (serverConfig.type == "postgrest") {
+                    config.postgrest = serverConfig;
                 }
             }
             uploadConfig();
@@ -2169,6 +2185,8 @@
                     config.influxdb = undefined;
                 } else if (serverConfig.type == "influxdb2") {
                     config.influxdb2 = undefined;
+                } else if (serverConfig.type == "postgrest") {
+                    config.postgrest = undefined;
                 }
                 serverConfig = undefined;
             }
@@ -2804,6 +2822,160 @@
         }
 
         /***********************************************************************************************
+         *                                Configure PostgREST
+         * ********************************************************************************************/
+        function editPostgrest() {
+            editing = true;
+
+            var serverTable = EbyId("serverTable");
+            serverTable.innerHTML = "";
+
+            if (serverConfig !== undefined) {
+                serverConfig.revision++;
+                EbyId("serverHead").innerHTML = "Edit PostgREST Uploader";
+                EbyId("serverDelete").style.display = "inline";
+                EbyId("serverDelete").setAttribute("onclick", "serverDelete();");
+            } else {
+                EbyId("serverHead").innerHTML = "Add PostgREST Uploader";
+                serverConfig = {
+                    type: "postgrest",
+                    revision: 0,
+                    postInterval: 60,
+                    bulksend: 1,
+                    url: "",
+                    table: "power_measurements",
+                    timeColumn: "timestamp",
+                    valueColumn: "value", 
+                    nameColumn: "name",
+                    schema: "public",
+                    batchSize: 100,
+                    outputs: []
+                };
+                EbyId("serverDelete").style.display = "none";
+            }
+
+            var postInput = addTableRow(serverTable, "post interval(sec): ", "serverPost", "input", 3);
+            postInput.value = Number(serverConfig.postInterval);
+            postInput.setAttribute("onchange", "serverConfig.postInterval = Number(this.value); checkPostgrest();");
+            postInput.setAttribute("style", "width: 40px;");
+            postInput.type = "number";
+            postInput.setAttribute("min", "5");
+            postInput.setAttribute("max", "3600");
+            postInput.setAttribute("step", "5");
+
+            if (isNaN(serverConfig.bulksend)) serverConfig.bulksend = 1;
+            var bulksendInput = addTableRow(serverTable, "bulk send:", "serverBulk", "input", 3);
+            bulksendInput.value = Number(serverConfig.bulksend);
+            bulksendInput.setAttribute("onchange", "serverConfig.bulksend = Number(this.value); checkPostgrest();");
+            bulksendInput.setAttribute("style", "width: 40px;");
+            bulksendInput.setAttribute("type", "number");
+            bulksendInput.setAttribute("min", "1");
+            bulksendInput.setAttribute("max", "10");
+            bulksendInput.setAttribute("step", "1");
+
+            var urlInput = addTableRow(serverTable, "server URL:", "serverURL", "input", 60);
+            urlInput.value = serverConfig.url;
+            urlInput.setAttribute("oninput", "serverConfig.url = this.value; checkPostgrest();");
+            urlInput.type = "url";
+            urlInput.placeholder = "https://your-postgrest-server.com";
+
+            var tableInput = addTableRow(serverTable, "table name:", "serverTable", "input", 32);
+            tableInput.value = serverConfig.table;
+            tableInput.setAttribute("oninput", "serverConfig.table = this.value; checkPostgrest();");
+            tableInput.placeholder = "power_measurements";
+
+            var schemaInput = addTableRow(serverTable, "schema:", "serverSchema", "input", 16);
+            schemaInput.value = serverConfig.schema || "public";
+            schemaInput.setAttribute("oninput", "serverConfig.schema = this.value; checkPostgrest();");
+            schemaInput.placeholder = "public";
+
+            var timeColInput = addTableRow(serverTable, "time column:", "serverTimeCol", "input", 16);
+            timeColInput.value = serverConfig.timeColumn || "timestamp";
+            timeColInput.setAttribute("oninput", "serverConfig.timeColumn = this.value; checkPostgrest();");
+            timeColInput.placeholder = "timestamp";
+
+            var valueColInput = addTableRow(serverTable, "value column:", "serverValueCol", "input", 16);
+            valueColInput.value = serverConfig.valueColumn || "value";
+            valueColInput.setAttribute("oninput", "serverConfig.valueColumn = this.value; checkPostgrest();");
+            valueColInput.placeholder = "value";
+
+            var nameColInput = addTableRow(serverTable, "name column:", "serverNameCol", "input", 16);
+            nameColInput.value = serverConfig.nameColumn || "name";
+            nameColInput.setAttribute("oninput", "serverConfig.nameColumn = this.value; checkPostgrest();");
+            nameColInput.placeholder = "name";
+
+            var batchSizeInput = addTableRow(serverTable, "batch size:", "serverBatchSize", "input", 4);
+            batchSizeInput.value = Number(serverConfig.batchSize || 100);
+            batchSizeInput.setAttribute("onchange", "serverConfig.batchSize = Number(this.value); checkPostgrest();");
+            batchSizeInput.setAttribute("style", "width: 60px;");
+            batchSizeInput.setAttribute("type", "number");
+            batchSizeInput.setAttribute("min", "1");
+            batchSizeInput.setAttribute("max", "1000");
+            batchSizeInput.setAttribute("step", "1");
+
+            addTableText(serverTable, "", "Authentication (optional)");
+
+            var apiKeyInput = addTableRow(serverTable, "API Key:", "serverApiKey", "input", 64);
+            if (serverConfig.apiKey) apiKeyInput.value = serverConfig.apiKey;
+            apiKeyInput.setAttribute("oninput", "serverConfig.apiKey = this.value; checkPostgrest();");
+            apiKeyInput.setAttribute("type", "password");
+            apiKeyInput.placeholder = "optional";
+
+            var jwtTokenInput = addTableRow(serverTable, "JWT Token:", "serverJwtToken", "input", 200);
+            if (serverConfig.jwtToken) jwtTokenInput.value = serverConfig.jwtToken;
+            jwtTokenInput.setAttribute("oninput", "serverConfig.jwtToken = this.value; checkPostgrest();");
+            jwtTokenInput.setAttribute("type", "password");
+            jwtTokenInput.placeholder = "optional";
+
+            var begdateInput = addTableRow(serverTable, "upload history from:", "serverBegd", "input", 16);
+            begdateInput.setAttribute("oninput",
+                "serverConfig.begdate = new Date(this.value).getTime()/1000 - config.timezone*3600; checkPostgrest();");
+            begdateInput.value = toInputDate(serverConfig.begdate + config.timezone * 3600);
+            begdateInput.type = "date";
+
+            EbyId("divServerOutputs").style.display = "inline";
+            EbyId("serverOutputsHeader").innerHTML = "PostgREST Outputs";
+            
+            var scriptEdit = {
+                table: EbyId("serverOutputs"),
+                set: serverConfig.outputs,
+                units: ["Watts", "Volts", "Amps", "Hz", "PF", "VA", "Wh", "kWh"],
+                title: "Output"
+            };
+
+            scriptEdit.save = function() {
+                serverConfig.outputs = scriptEdit.set;
+            };
+            
+            scriptEdit.return = function() {
+                scriptEdit.table.innerHTML = "";
+                editScript(scriptEdit);
+                checkPostgrest();
+            };
+            
+            editScript(scriptEdit);
+            EbyId("serverSave").style.display = "inline";
+            EbyId("serverCancel").style.display = "inline";
+            checkPostgrest();
+        }
+
+        function checkPostgrest() {
+            var complete = true;
+            complete &= validateRegex("serverURL", pattern_URL, "Please enter a valid URL.");
+            if (!validateInput("serverPost")) complete = false;
+            if (!validateInput("serverBulk")) complete = false;
+            complete &= validateRegex("serverTable", /^[a-zA-Z_][a-zA-Z0-9_]*$/, "Valid table name required");
+            complete &= validateRegex("serverSchema", /^[a-zA-Z_][a-zA-Z0-9_]*$/, "Valid schema name required");
+            complete &= validateRegex("serverTimeCol", /^[a-zA-Z_][a-zA-Z0-9_]*$/, "Valid column name required");
+            complete &= validateRegex("serverValueCol", /^[a-zA-Z_][a-zA-Z0-9_]*$/, "Valid column name required");
+            complete &= validateRegex("serverNameCol", /^[a-zA-Z_][a-zA-Z0-9_]*$/, "Valid column name required");
+            if (!validateInput("serverBatchSize")) complete = false;
+            if (!validateInput("serverBegd", false)) complete = false;
+            if (serverConfig.outputs.length == 0) complete = false;
+            EbyId("serverSave").style.display = complete ? "inline" : "none";
+        }
+
+        /***********************************************************************************************
          *                        Setup and run status display
          * *******************************************************************************************/
         function statusBegin() {
@@ -2824,7 +2996,7 @@
                     statusDisplay(xmlHttp.responseText);
                 }
             }
-            xmlHttp.open("GET", "/status?state&inputs&outputs&stats&wifi&datalogs&influx1&influx2&emoncms&pvoutput", true);
+            xmlHttp.open("GET", "/status?state&inputs&outputs&stats&wifi&datalogs&influx1&influx2&emoncms&pvoutput&postgrest", true);
             xmlHttp.send(null);
         }
 
@@ -2965,6 +3137,28 @@
                 }
             } else {
                 hide("statusPVoutDiv");
+            }
+
+            var postgrestDiv = EbyId("statusPostgrestDiv");
+            if (status.postgrest !== undefined && status.postgrest.state != "not running") {
+                show("statusPostgrestDiv", "block");
+                show("tabUploaders");
+                var button = EbyId("postgrestButton");
+                button.disabled = false;
+                if (status.postgrest.status == "running") {
+                    button.innerHTML = "Stop";
+                    EbyId("postgresttext").innerHTML = "Running"
+                } else {
+                    button.innerHTML = "Start";
+                    EbyId("postgresttext").innerHTML = "Stopped"
+                }
+                EbyId("postgresttext").innerHTML += ", Last update " + formatDateTime(status.postgrest.lastpost);
+                EbyId("postgrestmsg").innerHTML = "";
+                if (status.postgrest.message) {
+                    EbyId("postgrestmsg").innerHTML = "<br>" + status.postgrest.message;
+                }
+            } else {
+                hide("statusPostgrestDiv");
             }
 
 
