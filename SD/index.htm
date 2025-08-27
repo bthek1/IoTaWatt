@@ -364,6 +364,14 @@
                             <span id="PVoutputmsg"></span>
 
                         </div>
+
+                        <div id="statusPostgrestDiv" class="statusDiv" style="display: none;">
+                            <button id="postgrestButton" style="configButton" value="postgrest" onclick="serverToggle(this)"></button>
+                            <span>PostgREST:</span>
+                            <span id="postgresttext"></span>
+                            <span id="postgrestmsg"></span>
+
+                        </div>
                     </div>
                 </div>
 
@@ -560,15 +568,15 @@
             SI: "VARh",
             dp: 1
         }];
-        // configuration files
-        var configFileURL = "http://192.168.0.217/config.txt";
-        var configNewURL = "http://192.168.0.217/config+1.txt";
-        var burdenFileURL = "http://192.168.0.217/esp_spiffs/config/device/burden.txt";
-        var configTablesURL = "http://192.168.0.217/tables.txt";
+        // configuration files - using relative URLs for proxy compatibility
+        var configFileURL = "/config.txt";
+        var configNewURL = "/config+1.txt";
+        var burdenFileURL = "/esp_spiffs/config/device/burden.txt";
+        var configTablesURL = "/tables.txt";
         var editURL = "edit.htm";
         var graphURL = "graph.htm";
         var graph2URL = "graph2.htm";
-        var msgsFileURL = "http://192.168.0.217/iotawatt/iotamsgs.txt?textpos=-10000";
+        var msgsFileURL = "/iotawatt/iotamsgs.txt?textpos=-10000";
         var currentBody = [];
         var configSHA256;
         var noConfig = true;
@@ -2095,7 +2103,7 @@
          * ******************************************************************************************/
 
         function buildWebServer() {
-            var servers = ["Emoncms", "InfluxDB_v1", "influxDB_v2", "PVoutput"];
+            var servers = ["Emoncms", "InfluxDB_v1", "influxDB_v2", "PostgREST", "PVoutput"];
             EbyId("serverHead").innerHTML = "Setup Server Uploaders";
             EbyId("divInfluxTagSet").style.display = "none";
             EbyId("divServerOutputs").style.display = "none";
@@ -2122,6 +2130,9 @@
                 if (servers[i].toLowerCase() == "influxdb_v2") {
                     option.text += (config.influxdb2 !== undefined) ? " (edit)" : " (add)";
                 }
+                if (servers[i].toLowerCase() == "postgrest") {
+                    option.text += (config.postgrest !== undefined) ? " (edit)" : " (add)";
+                }
                 if (servers[i].toLowerCase() == "pvoutput") {
                     option.text += (config.pvoutput !== undefined) ? " (edit)" : " (add)";
                 }
@@ -2141,6 +2152,9 @@
             } else if (obj.value.toLowerCase() == "influxdb_v2") {
                 serverConfig = config.influxdb2;
                 editInfluxdb(2);
+            } else if (obj.value.toLowerCase() == "postgrest") {
+                serverConfig = config.postgrest;
+                editPostgrest();
             } else if (obj.value.toLowerCase() == "pvoutput") {
                 serverConfig = undefined;
                 editPVoutput();
@@ -2156,6 +2170,8 @@
                 } else if (serverConfig.type == "influxdb2") {
                     serverConfig.version = undefined;
                     config.influxdb2 = serverConfig;
+                } else if (serverConfig.type == "postgrest") {
+                    config.postgrest = serverConfig;
                 }
             }
             uploadConfig();
@@ -2169,6 +2185,8 @@
                     config.influxdb = undefined;
                 } else if (serverConfig.type == "influxdb2") {
                     config.influxdb2 = undefined;
+                } else if (serverConfig.type == "postgrest") {
+                    config.postgrest = undefined;
                 }
                 serverConfig = undefined;
             }
@@ -2804,6 +2822,190 @@
         }
 
         /***********************************************************************************************
+         *                        PostgREST Configuration Functions
+         * *******************************************************************************************/
+        
+        function editPostgrest() {
+            editing = true;
+            var serverTable = EbyId("serverTable");
+            serverTable.innerHTML = "";
+            
+            // Initialize config.postgrest if it doesn't exist
+            if (config.postgrest == undefined) {
+                config.postgrest = {
+                    type: "postgrest",
+                    revision: 0,
+                    url: "",
+                    postInterval: 10,
+                    bulksend: 1,
+                    begdate: undefined,
+                    table: "",
+                    timeColumn: "timestamp",
+                    valueColumn: "value", 
+                    nameColumn: "name",
+                    schema: "public",
+                    apiKey: "",
+                    jwtToken: "",
+                    batchSize: 100,
+                    outputs: []
+                };
+                EbyId("serverDelete").style.display = "none";
+                EbyId("serverHead").innerHTML = "Add PostgREST Service";
+            } else {
+                config.postgrest.revision++;
+                EbyId("serverHead").innerHTML = "Edit PostgREST Service";
+                EbyId("serverDelete").style.display = "inline";
+                EbyId("serverDelete").setAttribute("onclick", "deletePostgrest();");
+            }
+            
+            // Set serverConfig for compatibility with existing patterns
+            serverConfig = config.postgrest;
+            
+            var urlInput = addTableRow(serverTable, "PostgREST URL:", "serverURL", "input", 60);
+            urlInput.value = config.postgrest.url || "";
+            urlInput.setAttribute("oninput", "config.postgrest.url = this.value; checkPostgrest();");
+            urlInput.type = "url";
+            urlInput.placeholder = "http://localhost:3000";
+            
+            var postInput = addTableRow(serverTable, "Post interval (sec):", "serverPost", "input", 3);
+            postInput.value = Number(config.postgrest.postInterval || 10);
+            postInput.setAttribute("onchange", "config.postgrest.postInterval = Number(this.value); checkPostgrest();");
+            postInput.setAttribute("style", "width: 40px;");
+            postInput.type = "number";
+            postInput.min = 5;
+            postInput.max = 3600;
+            postInput.step = 5;
+            
+            var tableInput = addTableRow(serverTable, "Table name:", "serverTableName", "input", 32);
+            tableInput.value = config.postgrest.table || "";
+            tableInput.setAttribute("oninput", "config.postgrest.table = this.value; checkPostgrest();");
+            tableInput.placeholder = "iotawatt_data";
+            
+            var schemaInput = addTableRow(serverTable, "Schema:", "serverSchema", "input", 16);
+            schemaInput.value = config.postgrest.schema || "public";
+            schemaInput.setAttribute("oninput", "config.postgrest.schema = this.value; checkPostgrest();");
+            schemaInput.placeholder = "public";
+            
+            addTableText(serverTable, "", "Table must have columns: timestamp, device, sensor, power, pf, current, v");
+            addTableText(serverTable, "", "");
+            
+            var apiKeyInput = addTableRow(serverTable, "API Key:", "serverApiKey", "input", 32);
+            apiKeyInput.value = config.postgrest.apiKey || "";
+            apiKeyInput.setAttribute("oninput", "config.postgrest.apiKey = this.value; checkPostgrest();");
+            apiKeyInput.type = "password";
+            apiKeyInput.placeholder = "optional";
+            
+            var jwtInput = addTableRow(serverTable, "JWT Token:", "serverJwtToken", "input", 32);
+            jwtInput.value = config.postgrest.jwtToken || "";
+            jwtInput.setAttribute("oninput", "config.postgrest.jwtToken = this.value; checkPostgrest();");
+            jwtInput.type = "password";
+            jwtInput.placeholder = "optional";
+            
+            var batchInput = addTableRow(serverTable, "Batch size:", "serverBatchSize", "input", 3);
+            batchInput.value = config.postgrest.batchSize || 100;
+            batchInput.setAttribute("oninput", "config.postgrest.batchSize = Number(this.value); checkPostgrest();");
+            batchInput.setAttribute("style", "width: 60px;");
+            batchInput.type = "number";
+            batchInput.min = 1;
+            batchInput.max = 1000;
+            batchInput.step = 1;
+            
+            var bulkInput = addTableRow(serverTable, "Bulk send:", "serverBulkSend", "input", 3);
+            bulkInput.value = config.postgrest.bulksend || 1;
+            bulkInput.setAttribute("oninput", "config.postgrest.bulksend = Number(this.value); checkPostgrest();");
+            bulkInput.setAttribute("style", "width: 40px;");
+            bulkInput.type = "number";
+            bulkInput.min = 1;
+            bulkInput.max = 10;
+            bulkInput.step = 1;
+            
+            var begdateInput = addTableRow(serverTable, "Upload history from:", "serverBegdate", "input", 16);
+            begdateInput.setAttribute("onchange", 
+                "config.postgrest.begdate = (this.value == '') ? undefined : new Date(this.value).getTime()/1000 - config.timezone*3600; checkPostgrest();");
+            begdateInput.value = toInputDate((config.postgrest.begdate || 0) + config.timezone * 3600);
+            begdateInput.type = "date";
+            
+            EbyId("divServerOutputs").style.display = "inline";
+            EbyId("serverOutputsHeader").innerHTML = "PostgREST outputs";
+            
+            var scriptEdit = {
+                table: EbyId("serverOutputs"),
+                set: config.postgrest.outputs,
+                units: ["Watts", "Volts", "Amps", "Hz", "PF", "VA", "VAR", "VARh"],
+                nameList: [],
+                uniqueNames: true,
+                namePrompt: "Name must be alphanumeric and start with a letter",
+                namePattern: "^[a-zA-Z]{1}[a-zA-Z0-9_]{0,15}$",
+            };
+
+            scriptEdit.save = function() {
+                config.postgrest.outputs = scriptEdit.set;
+                checkPostgrest();
+            };
+
+            scriptEdit.return = function() {
+                EbyId("divCalc").style.display = "none";
+                EbyId("divServerOutputs").style.display = "inline";
+                editScript(scriptEdit);
+            };
+
+            editScript(scriptEdit);
+            checkPostgrest();
+        }
+
+        function checkPostgrest() {
+            var complete = true;
+            
+            // Validate required fields
+            if (!validateInput("serverURL", true)) {
+                complete = false;
+            }
+            
+            if (!validateInput("serverPost", true)) {
+                complete = false;
+            }
+            
+            if (!validateInput("serverTableName", true)) {
+                complete = false;
+            }
+            
+            if (!validateInput("serverBulkSend", true)) {
+                complete = false;
+            }
+            
+            if (!validateInput("serverBatchSize", true)) {
+                complete = false;
+            }
+            
+            // Validate optional fields (don't require them to be filled)
+            validateInput("serverSchema", false);
+            validateInput("serverTimeColumn", false);
+            validateInput("serverValueColumn", false);
+            validateInput("serverNameColumn", false);
+            validateInput("serverApiKey", false);
+            validateInput("serverJwtToken", false);
+            validateInput("serverBegdate", false);
+            
+            // Check if at least one output is selected
+            var hasOutputs = false;
+            if (config.postgrest && config.postgrest.outputs && config.postgrest.outputs.length > 0) {
+                hasOutputs = true;
+            } else {
+                complete = false;
+            }
+            
+            EbyId("serverSave").style.display = complete ? "inline" : "none";
+            if (config.postgrest && config.postgrest.reload != undefined && config.postgrest.reload == false) {
+                config.postgrest.reload = undefined;
+            }
+        }
+
+        function deletePostgrest() {
+            config.postgrest = undefined;
+            serverSave();
+        }
+
+        /***********************************************************************************************
          *                        Setup and run status display
          * *******************************************************************************************/
         function statusBegin() {
@@ -2824,7 +3026,7 @@
                     statusDisplay(xmlHttp.responseText);
                 }
             }
-            xmlHttp.open("GET", "/status?state&inputs&outputs&stats&wifi&datalogs&influx1&influx2&emoncms&pvoutput", true);
+            xmlHttp.open("GET", "/status?state&inputs&outputs&stats&wifi&datalogs&influx1&influx2&emoncms&pvoutput&postgrest", true);
             xmlHttp.send(null);
         }
 
@@ -2965,6 +3167,28 @@
                 }
             } else {
                 hide("statusPVoutDiv");
+            }
+
+            var PostgRestDiv = EbyId("statusPostgrestDiv");
+            if (status.postgrest !== undefined && status.postgrest.state != "not running") {
+                show("statusPostgrestDiv", "block");
+                show("tabUploaders");
+                var button = EbyId("postgrestButton");
+                button.disabled = false;
+                if (status.postgrest.status == "running") {
+                    button.innerHTML = "Stop";
+                    EbyId("postgresttext").innerHTML = "Running"
+                } else {
+                    button.innerHTML = "Start";
+                    EbyId("postgresttext").innerHTML = "Stopped"
+                }
+                EbyId("postgresttext").innerHTML += ", Last update " + formatDateTime(status.postgrest.lastpost);
+                EbyId("postgrestmsg").innerHTML = "";
+                if (status.postgrest.message) {
+                    EbyId("postgrestmsg").innerHTML = "<br>" + status.postgrest.message;
+                }
+            } else {
+                hide("statusPostgrestDiv");
             }
 
 

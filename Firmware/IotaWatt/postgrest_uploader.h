@@ -16,7 +16,9 @@ class postgrest_uploader : public uploader
             _apiKey(0),
             _jwtToken(0),
             _schema(0),
-            _batchSize(100)
+            _batchSize(100),
+            _queryRequest(0),
+            _GETrequest(0)
         {
             _id = charstar("postgrest");
         };
@@ -29,6 +31,10 @@ class postgrest_uploader : public uploader
             delete[] _apiKey;
             delete[] _jwtToken;
             delete[] _schema;
+            if (_queryRequest) {
+                delete _queryRequest;
+            }
+            delete _GETrequest;
             postgrest = nullptr;
         };
 
@@ -44,14 +50,26 @@ class postgrest_uploader : public uploader
         char *_jwtToken;
         char *_schema;
         uint16_t _batchSize;
+        asyncHTTPrequest* _queryRequest;  // Separate request object for GET queries
+        
+        // Custom GET request structure  
+        struct GETrequest{
+            char*   endpoint;
+            states  completionState;
+            GETrequest():endpoint(nullptr){};
+            ~GETrequest(){delete[] endpoint;}
+        };
+        GETrequest* _GETrequest;          // GET request control block
 
         uint32_t handle_query_s();
         uint32_t handle_checkQuery_s();
         uint32_t handle_write_s();
         uint32_t handle_checkWrite_s();
         bool configCB(JsonObject &);
+        uint32_t parseTimestamp(const char* timestampStr);
 
         void setRequestHeaders();
+        void HTTPGet(const char* endpoint, states completionState);  // Custom GET method
         int scriptCompare(Script *a, Script *b);
 };
 
